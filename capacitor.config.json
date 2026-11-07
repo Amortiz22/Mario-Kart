@@ -1,0 +1,6 @@
+{
+  "appId": "mx.kartazo.rally",
+  "appName": "Kartazo Rally",
+  "webDir": "www",
+  "android": { "backgroundColor": "#1b0f3b" }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "kartazo-rally",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Juego de karts multijugador para navegador y Android",
+  "scripts": {
+    "build:www": "node scripts/build-www.mjs",
+    "serve": "npx --yes http-server -p 8080 -c-1 .",
+    "android:init": "npm run build:www && npx cap add android && node scripts/patch-android.mjs",
+    "android:sync": "npm run build:www && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/core": "^6.2.0"
+  }
+}

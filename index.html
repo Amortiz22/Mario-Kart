@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1b0f3b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Kartazo Rally</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+<script src="vendor/peerjs.min.js"></script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ===== Título ===== -->
+<section id="scrTitle" class="screen show">
+  <div class="logo"><span>KARTAZO</span><em>RALLY</em></div>
+  <p class="tag">32 pistas · 12 vehículos · 7 modos · salas online</p>
+  <div class="menu">
+    <button class="big" data-go="solo">🏎️ Un jugador</button>
+    <button class="big alt" data-go="online">🌐 Multijugador online</button>
+    <button data-go="garage">🧑‍🔧 Garaje</button>
+    <button data-go="help">❓ Cómo jugar</button>
+    <button data-go="options">⚙️ Opciones</button>
+  </div>
+  <p class="foot" id="installHint"></p>
+</section>
+
+<!-- ===== Selección de modo ===== -->
+<section id="scrMode" class="screen">
+  <header><button class="back" data-go="title">←</button><h2>Elige modo</h2></header>
+  <div id="modeGrid" class="cards"></div>
+</section>
+
+<!-- ===== Garaje ===== -->
+<section id="scrGarage" class="screen">
+  <header><button class="back" id="garageBack">←</button><h2>Garaje</h2></header>
+  <div class="garage">
+    <div class="preview"><canvas id="garageCanvas" width="360" height="260"></canvas>
+      <div class="stats" id="statsBox"></div>
+    </div>
+    <div class="pick">
+      <label>Nombre <input id="nameInput" maxlength="12" placeholder="Tu nombre"></label>
+      <h3>Piloto</h3><div id="driverGrid" class="chips"></div>
+      <h3>Vehículo</h3><div id="vehicleGrid" class="chips"></div>
+      <h3>Color</h3><div id="colorGrid" class="swatches"></div>
+      <button class="big" id="garageOk">✔ Listo</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Ajustes de partida (un jugador) ===== -->
+<section id="scrSetup" class="screen">
+  <header><button class="back" data-go="mode">←</button><h2 id="setupTitle">Carrera</h2></header>
+  <div class="setupBar">
+    <label>Motor <select id="ccSel"><option value="50">50cc</option><option value="100">100cc</option><option value="150" selected>150cc</option><option value="200">200cc</option></select></label>
+    <label>Rivales CPU <select id="botSel"></select></label>
+    <label>Vueltas <select id="lapSel"><option>1</option><option>2</option><option selected>3</option><option>5</option></select></label>
+    <label class="chk"><input type="checkbox" id="mirrorChk"> Modo espejo</label>
+  </div>
+  <div id="cupTabs" class="tabs"></div>
+  <div id="trackGrid" class="tracks"></div>
+  <div class="row center"><button class="big alt" id="randomBtn">🎲 Sortear pista</button></div>
+</section>
+
+<!-- ===== Online ===== -->
+<section id="scrOnline" class="screen">
+  <header><button class="back" data-go="title">←</button><h2>Multijugador online</h2></header>
+  <div class="panel">
+    <p>Juega con amigos desde el navegador o la app de Android. Uno crea la sala y comparte el código.</p>
+    <button class="big" id="createRoom">➕ Crear sala</button>
+    <div class="join"><input id="codeInput" maxlength="5" placeholder="CÓDIGO" autocapitalize="characters"><button class="big alt" id="joinRoom">Unirse</button></div>
+    <p class="err" id="onlineErr"></p>
+  </div>
+</section>
+
+<!-- ===== Lobby ===== -->
+<section id="scrLobby" class="screen">
+  <header><button class="back" id="lobbyLeave">←</button><h2>Sala <span id="roomCode" class="code"></span></h2><button id="shareBtn">🔗 Compartir</button></header>
+  <div class="lobby">
+    <div class="panel"><h3>Jugadores</h3><div id="playerList"></div><button id="lobbyGarage">🧑‍🔧 Cambiar piloto/vehículo</button></div>
+    <div class="panel"><h3>Reglas <small id="hostOnly">(elige el anfitrión)</small></h3>
+      <label>Modo <select id="lMode"></select></label>
+      <label>Motor <select id="lCC"><option value="50">50cc</option><option value="100">100cc</option><option value="150" selected>150cc</option><option value="200">200cc</option></select></label>
+      <label>Rellenar con CPU hasta <select id="lBots"></select></label>
+      <label>Vueltas <select id="lLaps"><option>1</option><option>2</option><option selected>3</option><option>5</option></select></label>
+      <label id="lCupWrap">Copa <select id="lCup"></select></label>
+      <label class="chk"><input type="checkbox" id="lMirror"> Espejo</label>
+      <button class="big" id="lStart">▶ Votar pista y empezar</button>
+      <p class="muted" id="lWait">Esperando al anfitrión…</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Votación ===== -->
+<section id="scrVote" class="screen">
+  <header><h2>Vota la pista <span id="voteTimer"></span></h2></header>
+  <div id="voteGrid" class="tracks"></div>
+  <div class="row center"><button class="big alt" id="voteRandom">🎲 Al azar</button></div>
+  <div id="voteList" class="votes"></div>
+</section>
+
+<!-- ===== Ruleta ===== -->
+<section id="scrRoulette" class="screen">
+  <h2>¡Sorteando!</h2>
+  <div id="rouletteBox" class="roulette"></div>
+  <h2 id="rouletteName"></h2>
+</section>
+
+<!-- ===== HUD ===== -->
+<section id="hud" class="screen hudScreen">
+  <div id="ink"></div><div id="zap"></div>
+  <div class="hudTop">
+    <div id="pos"></div>
+    <div class="mid"><div id="lap"></div><div id="time"></div><div id="coins"></div></div>
+    <div id="itemBox"><div id="item"></div></div>
+  </div>
+  <canvas id="minimap" width="150" height="150"></canvas>
+  <div id="ranking"></div>
+  <div id="bigMsg"></div><div id="toast"></div>
+  <button id="pauseBtn">⏸</button>
+  <div id="touch">
+    <div id="steerPad"><div id="steerKnob">◀ ▶</div></div>
+    <div class="btns">
+      <button id="btnItem">🎁</button>
+      <button id="btnDrift">DERRAPE</button>
+      <button id="btnBrake">FRENO</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Pausa ===== -->
+<section id="scrPause" class="screen overlay">
+  <div class="panel center"><h2>Pausa</h2>
+    <button class="big" id="resumeBtn">▶ Continuar</button>
+    <button id="restartBtn">↻ Reiniciar</button>
+    <button id="quitBtn">✖ Salir al menú</button>
+  </div>
+</section>
+
+<!-- ===== Resultados ===== -->
+<section id="scrResults" class="screen overlay">
+  <div class="panel center wide"><h2 id="resTitle">Resultados</h2>
+    <table id="resTable"></table>
+    <div class="row center" id="resBtns"></div>
+  </div>
+</section>
+
+<!-- ===== Ayuda ===== -->
+<section id="scrHelp" class="screen">
+  <header><button class="back" data-go="title">←</button><h2>Cómo jugar</h2></header>
+  <div class="panel help">
+    <h3>Controles</h3>
+    <p><b>Teclado:</b> ← → o A/D girar · ↑/W acelerar · ↓/S frenar · <b>Espacio</b> derrapar · <b>X / Shift</b> usar item · Esc pausa</p>
+    <p><b>Celular:</b> desliza el pad izquierdo para girar (acelera solo) · botones de Derrape, Freno e Item.</p>
+    <p><b>Gamepad:</b> stick izq. girar · A acelerar · B frenar · RB/LB derrapar · X/Y item.</p>
+    <h3>Trucos</h3>
+    <p>🌀 Mantén el derrape en las curvas: chispas <span style="color:#4cc9f0">azules</span> → <span style="color:#ff9e00">naranjas</span> → <span style="color:#d16eff">moradas</span>. Suelta para un mini-turbo.</p>
+    <p>🚦 Acelera justo cuando la cuenta va en <b>2</b> para un arrancón.</p>
+    <p>🪙 Cada moneda sube tu velocidad máxima (hasta 10).</p>
+    <h3>Items</h3><div id="itemHelp" class="itemHelp"></div>
+    <h3>Modos</h3><div id="modeHelp"></div>
+  </div>
+</section>
+
+<!-- ===== Opciones ===== -->
+<section id="scrOptions" class="screen">
+  <header><button class="back" data-go="title">←</button><h2>Opciones</h2></header>
+  <div class="panel">
+    <label class="chk"><input type="checkbox" id="optSfx" checked> Efectos de sonido</label>
+    <label class="chk"><input type="checkbox" id="optMusic" checked> Música</label>
+    <label class="chk"><input type="checkbox" id="optAuto" checked> Aceleración automática (táctil)</label>
+    <label class="chk"><input type="checkbox" id="optTouch"> Forzar controles táctiles</label>
+    <label>Calidad gráfica <select id="optQ"><option value="0.75">Baja</option><option value="1" selected>Media</option><option value="2">Alta</option></select></label>
+    <button id="resetRecords">Borrar récords de contrarreloj</button>
+  </div>
+</section>
+
+<div id="loading" class="screen overlay"><div class="spinner"></div><p id="loadingText">Cargando…</p></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

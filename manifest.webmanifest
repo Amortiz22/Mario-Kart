@@ -1,0 +1,16 @@
+{
+  "name": "Kartazo Rally",
+  "short_name": "Kartazo",
+  "description": "Carreras de karts con 32 pistas, batallas y salas online con amigos.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b0f3b",
+  "theme_color": "#1b0f3b",
+  "lang": "es",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
