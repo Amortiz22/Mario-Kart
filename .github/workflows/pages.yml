@@ -10,12 +10,12 @@ permissions:
 concurrency: { group: pages, cancel-in-progress: true }
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
       - run: node scripts/build-www.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
