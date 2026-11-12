@@ -1,7 +1,8 @@
 // ===== Núcleo de partida: carreras y batallas =====
 import * as THREE from '../vendor/three.module.min.js';
 import { VEHICLES, DRIVERS, CC, ITEMS, rollItem, rng } from './data.js';
-import { buildTrack, buildArena, getBoxTex } from './track.js';
+import { buildArena, getBoxTex } from './track.js';
+import { buildTrack } from './circuit.js';
 import { makeVehicle, makeItemMesh, setBalloons } from './models.js';
 import { readInput } from './input.js';
 import { sfx, engineUpdate, startMusic, stopMusic } from './audio.js';
@@ -69,7 +70,7 @@ export class Game {
       const k = {
         slot: p.slot, name: p.name, v, d, color: p.color, bot: !!p.bot, human: !p.bot, local: !!p.local, model,
         pos: new THREE.Vector3(g.x, g.y, g.z), vel: new THREE.Vector3(), heading: g.heading, speed: 0, vy: 0, grounded: true,
-        idx: -1, lap: 0, s: 0, progress: 0, drift: 0, charge: 0, boost: 0, star: 0, mini: 0, spin: 0, tumble: 0, invuln: 0,
+        qh: { r: -1, i: -1 }, st: 0, airT: 0, slope: 0, lap: 0, s: 0, progress: 0, drift: 0, charge: 0, boost: 0, star: 0, mini: 0, spin: 0, tumble: 0, invuln: 0,
         item: null, itemCount: 0, roulette: 0, coins: this.battle ? 0 : 0, balloons: this.mode === 'globos' ? 3 : 0, score: 0,
         finished: false, finishTime: 0, place: i + 1, eliminated: false, startPressed: null, visYaw: 0, wheelRot: 0,
         weight: v.peso + d.weight, lastHitBy: null,
@@ -78,7 +79,7 @@ export class Game {
       };
       if (this.mode === 'tt' && k.human) { k.item = 'nitro3'; k.itemCount = 3; }
       if (this.mode === 'globos') setBalloons(model, 3, p.color);
-      if (!this.battle) { const q = this.world.query(k.pos.x, k.pos.y, k.pos.z, null); k.idx = q.idx; k.s = q.s; k.progress = q.s - this.world.L; }
+      if (!this.battle) { const q = this.world.query(k.pos.x, k.pos.y, k.pos.z, k.qh); k.s = q.s; k.progress = q.s - this.world.L; k.lastQ = q; }
       return k;
     });
     this.bySlot = new Map(this.karts.map(k => [k.slot, k]));
@@ -88,13 +89,16 @@ export class Game {
     const c = this.hudEl.querySelector('#minimap'); this.mm = c; const g = c.getContext('2d');
     const W = c.width, H = c.height;
     const pts = this.battle ? null : this.world.S;
-    const ext = this.battle ? this.world.H * 1.1 : this.world.maxR * 1.05;
+    const ext = this.battle ? this.world.H * 1.1 : this.world.maxR * 1.08;
     this.mmTf = (x, z) => [W / 2 + (x / ext) * W / 2 * 0.95, H / 2 - (z / ext) * H / 2 * 0.95];
     const bg = document.createElement('canvas'); bg.width = W; bg.height = H; const b = bg.getContext('2d');
     if (pts) {
-      b.lineWidth = 7; b.strokeStyle = 'rgba(0,0,0,0.5)'; b.lineJoin = 'round'; b.beginPath();
-      pts.forEach((s, i) => { const [x, y] = this.mmTf(s.x, s.z); i ? b.lineTo(x, y) : b.moveTo(x, y); }); b.closePath(); b.stroke();
-      b.lineWidth = 4; b.strokeStyle = 'rgba(255,255,255,0.9)'; b.stroke();
+      b.lineJoin = 'round';
+      for (const [lw, col] of [[7, 'rgba(0,0,0,0.5)'], [4, 'rgba(255,255,255,0.9)']]) for (const rd of this.world.roads) {
+        b.lineWidth = rd.dirt ? lw * 0.6 : lw; b.strokeStyle = rd.dirt && lw === 4 ? 'rgba(220,170,110,0.95)' : col; b.setLineDash(rd.dirt && lw === 4 ? [4, 3] : []);
+        b.beginPath(); rd.S.forEach((s, i) => { const [x, y] = this.mmTf(s.x, s.z); i ? b.lineTo(x, y) : b.moveTo(x, y); }); if (rd.closed) b.closePath(); b.stroke();
+      }
+      b.setLineDash([]);
       const [fx, fy] = this.mmTf(pts[0].x, pts[0].z); b.fillStyle = '#ff0'; b.fillRect(fx - 3, fy - 3, 6, 6);
     } else {
       const [x0, y0] = this.mmTf(-this.world.H, this.world.H), [x1, y1] = this.mmTf(this.world.H, -this.world.H);
@@ -168,6 +172,15 @@ export class Game {
         if (racing) this.itemLogic(k, inp, dt);
       } else this.remoteUpdate(k, dt);
     }
+    if (this.world.updateHazards) {
+      this.world.updateHazards(this.time);
+      if (racing) for (const k of this.karts) {
+        if (!k.local || k.eliminated || k.star > 0 || k.respawnT > 0) continue;
+        const e = this.world.hazardHit(k.pos.x, k.pos.y, k.pos.z, this.time);
+        if (e === 'slow') k.slowT = 0.15;
+        else if (e && k.invuln <= 0) this.applyHit(k, e, -1);
+      }
+    }
     if (racing) {
       this.collideKarts();
       this.updateObjects(dt);
@@ -189,111 +202,150 @@ export class Game {
     }
   }
 
-  chargeLvl(k) { return k.drift ? (k.charge > 3.4 ? 3 : k.charge > 2.0 ? 2 : k.charge > 0.9 ? 1 : 0) : 0; }
+  chargeLvl(k) { return k.drift ? (k.charge > 2.9 ? 3 : k.charge > 1.8 ? 2 : k.charge > 0.8 ? 1 : 0) : 0; }
 
   // ---------- física ----------
   physics(k, inp, dt, racing) {
     const v = k.v, w = this.world;
+    // ---- volante suavizado (teclado digital → analógico) ----
+    const tgtSteer = inp.steer;
+    const rate = Math.abs(tgtSteer) < Math.abs(k.st) ? 14 : 7;
+    k.st += (tgtSteer - k.st) * Math.min(1, dt * rate);
+    let steer = k.st, thr = inp.throttle;
+    const stunned = k.spin > 0 || k.tumble > 0 || k.respawnT > 0;
+    if (stunned) { steer = 0; thr = 0; }
+
+    // ---- velocidad máxima ----
     let max = 30 * this.cc.speed * (0.88 + v.vel * 0.045);
     if (k.bot && k.ai) max *= this.cc.ai * k.ai.skill * this.rubber(k);
     const accel = (12 + v.acel * 3.6) * (this.cc.speed * 0.5 + 0.5);
-    const turn = 1.55 + v.man * 0.2 + (4 - k.weight) * 0.03;
+    const turn = 1.75 + v.man * 0.17 + (4 - k.weight) * 0.03;
     max *= 1 + k.coins * 0.008;
     if (k.mini > 0) max *= 0.8;
     if (k.star > 0) max *= 1.18;
     if (k.boost > 0) max *= 1.35;
-    const q0 = w.query(k.pos.x, k.pos.y, k.pos.z, k.idx);
-    if (q0.off && k.boost <= 0 && k.star <= 0 && k.grounded && !v.hover) max *= 0.42 + v.todo * 0.09;
-    if (v.hover && q0.off) max *= 0.82;
+    const q0 = k.lastQ;
+    if (q0 && q0.off && k.boost <= 0 && k.star <= 0 && k.grounded) max *= v.hover ? 0.82 : (q0.dirt ? 0.55 + v.todo * 0.08 : 0.42 + v.todo * 0.09);
+    if (k.slowT > 0 && k.star <= 0 && k.boost <= 0) max *= 0.5;
 
-    let steer = inp.steer, thr = inp.throttle;
-    const stunned = k.spin > 0 || k.tumble > 0;
-    if (stunned) { steer = 0; thr = 0; }
-    // aceleración
-    if (k.boost > 0) k.speed += 60 * dt;
+    // ---- aceleración ----
+    if (k.boost > 0) { if (k.speed < max) k.speed = Math.min(max, k.speed + 60 * dt); }
     else if (thr > 0) k.speed += accel * thr * dt * (k.speed < max * 0.6 ? 1.2 : 0.75);
     else if (thr < 0) k.speed += (k.speed > 0 ? -40 : -12) * dt;
     else k.speed -= Math.sign(k.speed) * Math.min(Math.abs(k.speed), 7 * dt);
     if (stunned) k.speed *= Math.exp(-(k.tumble > 0 ? 3.5 : 1.8) * dt);
-    if (k.speed > max) k.speed = Math.max(max, k.speed - 30 * dt);
+    if (k.speed > max) k.speed = Math.max(max, k.speed - 22 * dt);
     if (k.speed < -11) k.speed = -11;
 
-    // derrape
-    if (!stunned && k.grounded && inp.drift && !k.drift && Math.abs(steer) > 0.3 && k.speed > 12) {
-      k.drift = Math.sign(steer); k.charge = 0; k.vy = 5.5; k.grounded = false;
+    // ---- derrape (manual o automático) ----
+    let driftHeld = inp.drift;
+    if (inp.autoDrift && !inp.drift) {
+      if (!k.drift) { k.adT = (Math.abs(steer) > 0.72 && k.speed > 16 && k.grounded) ? (k.adT || 0) + dt : 0; driftHeld = k.adT > 0.16; }
+      else { k.adRel = steer * k.drift < 0.12 ? (k.adRel || 0) + dt : 0; driftHeld = k.adRel < 0.14; }
     }
-    if (k.drift && (!inp.drift || k.speed < 8 || stunned)) {
+    const driftEdge = inp.drift && !k.prevDrift; k.prevDrift = inp.drift;
+    // truco en el aire (al saltar de una rampa o desnivel)
+    if (!k.grounded && k.airT > 0.12 && driftEdge && !k.trick && !stunned) { k.trick = true; k.trickT = 0.5; if (k.human) { sfx.item(); this.msg('¡Truco!'); } }
+    if (!stunned && driftHeld && !k.drift && k.speed > 10 && (k.grounded || k.airT < 0.3)) {
+      if (Math.abs(steer) > 0.25 || Math.abs(inp.steer) > 0.3) {
+        k.drift = Math.sign(Math.abs(steer) > 0.25 ? steer : inp.steer); k.charge = 0;
+        if (k.grounded) { k.vy = 4.5; k.grounded = false; }
+      }
+    }
+    if (k.drift && (!driftHeld || k.speed < 6 || stunned)) {
       const lvl = this.chargeLvl(k);
-      if (!stunned && lvl > 0) { k.boost = Math.max(k.boost, [0, 0.6, 1.1, 1.8][lvl]); if (k.human) sfx.mini(lvl); }
+      if (!stunned && lvl > 0) { k.boost = Math.max(k.boost, [0, 0.55, 1.0, 1.6][lvl]); if (k.human) { sfx.mini(lvl); sfx.boost(); } }
       k.drift = 0; k.charge = 0;
     }
+
+    // ---- giro ----
     let yawRate;
-    const spdF = clamp(Math.abs(k.speed) / 9, 0, 1) * (1 - clamp((k.speed - 32) / 60, 0, 0.25));
+    const spdF = clamp(Math.abs(k.speed) / 8, 0, 1) * (1 - clamp((k.speed - 34) / 70, 0, 0.2));
     if (k.drift) {
-      const es = k.drift * (0.55 + 0.45 * steer * k.drift);
-      yawRate = es * turn * (v.inside ? 1.35 : 1.2);
-      k.charge += dt * (0.9 + 0.6 * Math.abs(steer));
+      // contravolante abre la curva, volante hacia dentro la cierra
+      const into = steer * k.drift;              // -1..1
+      const es = 0.42 + 0.58 * (into + 1) / 2;   // 0.42 .. 1.0
+      yawRate = k.drift * es * turn * (v.inside ? 1.32 : 1.18) * clamp(k.speed / 18, 0.6, 1);
+      k.charge += dt * (0.85 + 1.1 * Math.max(0, into));
     } else yawRate = steer * turn * spdF * Math.sign(k.speed || 1);
-    if (!k.grounded && !k.drift) yawRate *= 0.6;
+    if (!k.grounded && !k.drift) yawRate *= 0.5;
     k.heading -= yawRate * dt;
     if (k.spin > 0) k.visYaw += dt * 14; else if (k.tumble > 0) k.visYaw += dt * 9; else {
-      const targetYaw = k.drift ? -k.drift * (v.inside ? 0.18 : 0.42) : -steer * 0.06;
-      k.visYaw += (wrapA(targetYaw - k.visYaw)) * Math.min(1, dt * 8);
+      const targetYaw = k.drift ? -k.drift * (v.inside ? 0.2 : 0.48) : -steer * 0.07;
+      k.visYaw += wrapA(targetYaw - k.visYaw) * Math.min(1, dt * 7);
     }
-    // velocidad
+    // ---- velocidad: sigue el rumbo (el derrape es controlable) ----
     const fx = Math.sin(k.heading), fz = Math.cos(k.heading);
-    const grip = k.drift ? 3.5 : (k.grounded ? 9 : 2);
+    const grip = k.drift ? 6.5 : (k.grounded ? 10 : 1.2);
     const blend = 1 - Math.exp(-grip * dt);
     k.vel.x += (fx * k.speed - k.vel.x) * blend;
     k.vel.z += (fz * k.speed - k.vel.z) * blend;
     k.pos.x += k.vel.x * dt; k.pos.z += k.vel.z * dt;
 
-    // superficie y muros
-    const q = w.query(k.pos.x, k.pos.y, k.pos.z, k.idx);
-    if (!w.isArena) {
-      const lim = q.wallD - 1.1;
-      if (Math.abs(q.d) > lim) {
-        const sd = Math.sign(q.d), pen = Math.abs(q.d) - lim;
-        k.pos.x -= q.rx * pen * sd; k.pos.z -= q.rz * pen * sd;
-        const lat = k.vel.x * q.rx + k.vel.z * q.rz;
-        if (lat * sd > 0) {
-          k.vel.x -= q.rx * lat * 1.4; k.vel.z -= q.rz * lat * 1.4;
-          if (Math.abs(lat) > 8) { k.speed *= 0.8; if (k.human) sfx.click(); }
-          // alinear un poco con la pista
-          const th = Math.atan2(q.tx, q.tz), dif = wrapA(th - k.heading);
-          if (Math.abs(dif) < Math.PI / 2) k.heading += dif * 0.08;
-        }
+    // ---- superficie, muros y caídas ----
+    const q = w.query(k.pos.x, k.pos.y, k.pos.z, k.qh);
+    k.lastQ = q;
+    if (q.push) {
+      k.pos.x += q.push.x; k.pos.z += q.push.z;
+      const pl = Math.hypot(q.push.x, q.push.z) || 1, nx = q.push.x / pl, nz = q.push.z / pl;
+      const vn = k.vel.x * nx + k.vel.z * nz;
+      if (vn < 0) {
+        const impact = Math.min(1, -vn / Math.max(6, Math.abs(k.speed)));
+        k.vel.x -= nx * vn; k.vel.z -= nz * vn;                // deslizar a lo largo del muro
+        if (impact > 0.65) { k.vel.x += nx * -vn * 0.35; k.vel.z += nz * -vn * 0.35; } // choque de frente: pequeño rebote
+        k.speed *= 1 - 0.4 * impact * impact;
+        if (impact > 0.35 && k.human && (this.time - (k.lastBump || 0)) > 0.3) { sfx.click(); k.lastBump = this.time; }
+        // enderezar hacia la dirección de la pista
+        if (!w.isArena) { const th = Math.atan2(q.tx, q.tz), dif = wrapA(th - k.heading); if (Math.abs(dif) < Math.PI / 2) k.heading += dif * Math.min(1, 0.2 * impact + dt * 2); }
       }
-      // progreso y vueltas
-      const prevS = k.s; k.idx = q.idx; k.s = q.s;
+      if (k.ai) k.ai.bump = 0.3;
+    }
+    if (!w.isArena) {
+      const prevS = k.s; k.s = q.s; k.sl = q.sl; k.road = q.r;
       const L = w.L;
       if (prevS > L * 0.75 && k.s < L * 0.25) this.crossLine(k, 1);
       else if (prevS < L * 0.25 && k.s > L * 0.75) this.crossLine(k, -1);
       k.progress = (k.lap - 1) * L + k.s;
-      // turbo pads
       for (const p of w.pads) {
-        const ds = k.s - p.s;
-        if (ds > -3 && ds < 3 && Math.abs(q.d - p.off) < 2.4 && k.boost < 0.5) { k.boost = 1.0; if (k.human) sfx.boost(); }
+        if (p.r !== q.r) continue;
+        const ds = q.sl - p.sl;
+        if (ds > -3 && ds < 3 && Math.abs(q.d - p.off) < p.w + 0.6 && k.boost < 0.6 && k.grounded) { k.boost = p.big ? 1.3 : 1.0; if (k.human) sfx.boost(); }
       }
-    } else if (q.push) {
-      k.pos.x += q.push.x; k.pos.z += q.push.z;
-      const pl = Math.hypot(q.push.x, q.push.z) || 1, nx = q.push.x / pl, nz = q.push.z / pl;
-      const vn = k.vel.x * nx + k.vel.z * nz;
-      if (vn < 0) { k.vel.x -= nx * vn * 1.5; k.vel.z -= nz * vn * 1.5; if (vn < -8) { k.speed *= 0.6; if (k.human) sfx.click(); } }
-      if (k.ai) k.ai.bump = 0.3;
     }
-    // altura
+    // ---- altura: rampas, saltos y caídas ----
     const gh = q.h + (v.hover ? 0.35 : 0);
+    const wasGrounded = k.grounded;
     k.vy -= 38 * dt; k.pos.y += k.vy * dt;
-    if (k.pos.y <= gh) { k.pos.y = gh; if (k.vy < -14 && k.human) sfx.click(); k.vy = 0; k.grounded = true; }
-    else if (k.grounded && k.pos.y - gh < 0.7 && k.vy <= 0) { k.pos.y = gh; k.vy = 0; }
-    else k.grounded = false;
-    k.slope = q.slope || 0;
-
-    // timers
+    if (!q.fall && k.pos.y <= gh) {
+      if (!wasGrounded && k.airT > 0.25) { // aterrizaje
+        if (k.trick && k.respawnT <= 0) { k.boost = Math.max(k.boost, 0.9); if (k.human) sfx.boost(); }
+        if (k.human && k.airT > 0.5) sfx.click();
+      }
+      k.pos.y = gh; k.vy = k.speed * q.slope; k.grounded = true; k.trick = false; k.airT = 0;
+    } else if (!q.fall && wasGrounded && k.pos.y - gh < 0.6) {
+      k.pos.y = gh; k.vy = k.speed * q.slope; k.airT = 0;
+    } else { k.grounded = false; k.airT += dt; }
+    k.slope = k.grounded ? q.slope : k.slope * 0.97;
+    k.trickT = Math.max(0, (k.trickT || 0) - dt);
+    // punto seguro y rescate
+    if (!w.isArena) {
+      if (k.grounded && !q.off && !q.fall && Math.abs(q.d) < q.W * 0.8 && !q.ramp) k.safe = { r: q.r, i: q.idx, y: k.pos.y };
+      const sy = k.safe ? k.safe.y : 0;
+      if (k.pos.y < sy - 9 || k.pos.y < -30 || (q.fall && w.theme.ground !== null && k.pos.y < q.h - 1.5)) this.respawn(k);
+    }
+    // ---- temporizadores ----
     k.boost = Math.max(0, k.boost - dt); k.star = Math.max(0, k.star - dt); k.mini = Math.max(0, k.mini - dt);
     k.spin = Math.max(0, k.spin - dt); k.tumble = Math.max(0, k.tumble - dt); k.invuln = Math.max(0, k.invuln - dt);
+    k.slowT = Math.max(0, (k.slowT || 0) - dt); k.respawnT = Math.max(0, (k.respawnT || 0) - dt);
     if (k === this.me) engineUpdate(k.speed, true);
+  }
+
+  respawn(k) {
+    const sp = this.world.safePoint(k.safe ? k.safe.r : 0, k.safe ? k.safe.i : 0);
+    k.pos.set(sp.x, sp.y + 3, sp.z); k.heading = sp.heading; k.vel.set(0, 0, 0); k.speed = 0; k.vy = 0;
+    k.qh = { r: sp.r, i: sp.i }; k.drift = 0; k.charge = 0; k.boost = 0; k.respawnT = 1.2; k.invuln = 2.2; k.spin = 0; k.tumble = 0;
+    k.coins = Math.max(0, k.coins - (this.battle ? 0 : 2)); k.respawns = (k.respawns || 0) + 1;
+    if (k === this.me) { this.msg('🚁 ¡Al rescate!'); this.camPos.set(sp.x - Math.sin(sp.heading) * 8, sp.y + 4, sp.z - Math.cos(sp.heading) * 8); }
   }
 
   rubber(k) {
@@ -334,7 +386,7 @@ export class Game {
     k.visYaw = n.vy; k.speed = n.sp; k.vel.set(n.vx, 0, n.vz);
     k.spin = n.f & 1 ? 0.1 : 0; k.tumble = n.f & 2 ? 0.1 : 0; k.star = n.f & 4 ? 0.1 : 0; k.mini = n.f & 8 ? 0.1 : 0; k.boost = n.f & 16 ? 0.1 : 0;
     k.drift = n.f & 32 ? 1 : 0; k.remoteLvl = (n.f >> 6) & 3;
-    if (!this.battle) { k.lap = n.l; k.s = n.s; k.progress = (k.lap - 1) * this.world.L + k.s; k.idx = this.world.query(k.pos.x, k.pos.y, k.pos.z, k.idx).idx; }
+    if (!this.battle) { k.lap = n.l; k.s = n.s; k.progress = (k.lap - 1) * this.world.L + k.s; const q = this.world.query(k.pos.x, k.pos.y, k.pos.z, k.qh); k.slope = q.slope; }
     if (k.balloons !== n.b && this.mode === 'globos') { k.balloons = n.b; setBalloons(k.model, n.b, k.color); if (n.b <= 0) this.eliminate(k); }
     k.coins = n.c;
   }
@@ -367,7 +419,7 @@ export class Game {
   applyHit(k, kind, by) {
     if (!k.local || k.eliminated) return false;
     if (k.star > 0 || k.invuln > 0) return false;
-    if (kind === 'tumble') { k.tumble = 1.4; k.vy = 9; k.grounded = false; } else k.spin = 1.0;
+    if (kind === 'tumble') { k.tumble = 1.4; k.vy = 9; k.grounded = false; } else if (kind === 'crush') { k.spin = 1.2; k.mini = 2.5; k.speed *= 0.3; } else k.spin = 1.0;
     k.drift = 0; k.charge = 0; k.boost = 0; k.invuln = 2.0;
     if (k.human) sfx.hit();
     const ev = { t: 'hit', v: k.slot, by: by ?? -1, kind };
@@ -434,18 +486,18 @@ export class Game {
     const sp = (o) => { this.spawnObject(o, true); this.send({ t: 'spawn', o }); };
     switch (base) {
       case 'cascara': case 'falsa':
-        sp({ id: id(), type: base, x: k.pos.x - fx * 3, y: k.pos.y, z: k.pos.z - fz * 3, owner: k.slot, vx: 0, vz: 0, idx: k.idx }); break;
+        sp({ id: id(), type: base, x: k.pos.x - fx * 3, y: k.pos.y, z: k.pos.z - fz * 3, owner: k.slot, vx: 0, vz: 0 }); break;
       case 'disco':
-        sp({ id: id(), type: 'disco', x: k.pos.x + fx * 3, y: k.pos.y, z: k.pos.z + fz * 3, owner: k.slot, vx: fx * 58, vz: fz * 58, idx: k.idx }); break;
+        sp({ id: id(), type: 'disco', x: k.pos.x + fx * 3, y: k.pos.y, z: k.pos.z + fz * 3, owner: k.slot, vx: fx * 58, vz: fz * 58 }); break;
       case 'rojo': {
         const tgt = this.pickTarget(k);
-        sp({ id: id(), type: 'rojo', x: k.pos.x + fx * 3, y: k.pos.y, z: k.pos.z + fz * 3, owner: k.slot, vx: fx * 50, vz: fz * 50, idx: k.idx, target: tgt ? tgt.slot : -1 }); break;
+        sp({ id: id(), type: 'rojo', x: k.pos.x + fx * 3, y: k.pos.y, z: k.pos.z + fz * 3, owner: k.slot, vx: fx * 50, vz: fz * 50, target: tgt ? tgt.slot : -1 }); break;
       }
       case 'bomba':
-        sp({ id: id(), type: 'bomba', x: k.pos.x + fx * 3, y: k.pos.y + 1.5, z: k.pos.z + fz * 3, owner: k.slot, vx: fx * (k.speed + 18), vz: fz * (k.speed + 18), vy: 9, idx: k.idx }); break;
+        sp({ id: id(), type: 'bomba', x: k.pos.x + fx * 3, y: k.pos.y + 1.5, z: k.pos.z + fz * 3, owner: k.slot, vx: fx * (k.speed + 18), vz: fz * (k.speed + 18), vy: 9 }); break;
       case 'lider': {
         const lead = this.karts.filter(x => !x.eliminated && x !== k && !x.finished).sort((a, b) => a.place - b.place)[0];
-        if (lead) sp({ id: id(), type: 'lider', x: k.pos.x, y: k.pos.y + 4, z: k.pos.z, owner: k.slot, vx: fx * 70, vz: fz * 70, idx: k.idx, target: lead.slot, s: k.s });
+        if (lead) sp({ id: id(), type: 'lider', x: k.pos.x, y: k.pos.y + 4, z: k.pos.z, owner: k.slot, vx: fx * 70, vz: fz * 70, target: lead.slot, s: k.s });
         break;
       }
       case 'nitro': k.boost = 1.3; if (k.human) sfx.boost(); break;
@@ -479,7 +531,8 @@ export class Game {
     if (this.objects.has(o.id)) return;
     const mesh = makeItemMesh(o.type); mesh.position.set(o.x, o.y, o.z); this.scene.add(mesh);
     const obj = { ...o, pos: new THREE.Vector3(o.x, o.y, o.z), vel: new THREE.Vector3(o.vx || 0, o.vy || 0, o.vz || 0), mesh, life: o.type === 'disco' ? 7 : o.type === 'rojo' ? 9 : o.type === 'lider' ? 25 : o.type === 'bomba' ? 4 : 60, age: 0, fuse: -1, bounces: 0 };
-    if (o.type === 'cascara' || o.type === 'falsa') { const q = this.world.query(o.x, o.y, o.z, o.idx ?? null); obj.pos.y = q.h; }
+    obj.qh = { r: -1, i: -1 };
+    if (o.type === 'cascara' || o.type === 'falsa') { const q = this.world.query(o.x, o.y, o.z, obj.qh); obj.pos.y = q.fall ? o.y : q.h; }
     this.objects.set(o.id, obj);
   }
   removeObject(id) { const o = this.objects.get(id); if (!o) return; this.scene.remove(o.mesh); this.objects.delete(id); }
@@ -509,7 +562,7 @@ export class Game {
           let ax, az;
           if (tg && !tg.eliminated) {
             const d = Math.hypot(tg.pos.x - o.pos.x, tg.pos.z - o.pos.z);
-            if (!w.isArena && d > 28) { const q = w.query(o.pos.x, o.pos.y, o.pos.z, o.idx); const p = w.pointAt(q.s + 14, 0); ax = p.x; az = p.z; }
+            if (!w.isArena && d > 28) { const q = w.query(o.pos.x, o.pos.y, o.pos.z, o.qh); const p = w.pointAt(q.s + 14, 0); ax = p.x; az = p.z; }
             else { ax = tg.pos.x; az = tg.pos.z; }
             const cur = Math.atan2(o.vel.x, o.vel.z), want = Math.atan2(ax - o.pos.x, az - o.pos.z);
             const nh = cur + clamp(wrapA(want - cur), -5 * dt, 5 * dt), spd = 52;
@@ -517,15 +570,10 @@ export class Game {
           }
         }
         o.pos.x += o.vel.x * dt; o.pos.z += o.vel.z * dt;
-        const q = w.query(o.pos.x, o.pos.y, o.pos.z, o.idx);
-        if (!w.isArena) {
-          o.idx = q.idx; o.pos.y = q.h;
-          const lim = q.wallD - 0.8;
-          if (Math.abs(q.d) > lim) {
-            const sd = Math.sign(q.d); o.pos.x -= q.rx * (Math.abs(q.d) - lim) * sd; o.pos.z -= q.rz * (Math.abs(q.d) - lim) * sd;
-            const lat = o.vel.x * q.rx + o.vel.z * q.rz; o.vel.x -= 2 * lat * q.rx; o.vel.z -= 2 * lat * q.rz; o.bounces++;
-          }
-        } else if (q.push) {
+        const q = w.query(o.pos.x, o.pos.y, o.pos.z, o.qh);
+        if (q.fall) { o.vel.y = (o.vel.y || 0) - 30 * dt; o.pos.y += o.vel.y * dt; if (o.pos.y < q.h - 15) { this.removeObject(o.id); continue; } }
+        else o.pos.y = q.h;
+        if (q.push) {
           o.pos.x += q.push.x; o.pos.z += q.push.z;
           const pl = Math.hypot(q.push.x, q.push.z) || 1, nx = q.push.x / pl, nz = q.push.z / pl, vn = o.vel.x * nx + o.vel.z * nz;
           if (vn < 0) { o.vel.x -= 2 * vn * nx; o.vel.z -= 2 * vn * nz; } o.bounces++;
@@ -535,10 +583,9 @@ export class Game {
       } else if (t === 'bomba') {
         if (o.fuse < 0) {
           o.vel.y -= 30 * dt; o.pos.addScaledVector(o.vel, dt);
-          const q = w.query(o.pos.x, o.pos.y, o.pos.z, o.idx); if (!w.isArena) o.idx = q.idx;
+          const q = w.query(o.pos.x, o.pos.y, o.pos.z, o.qh);
           if (q.push) { o.pos.x += q.push.x; o.pos.z += q.push.z; }
-          if (!w.isArena && Math.abs(q.d) > q.wallD - 1) { const sd = Math.sign(q.d); o.pos.x -= q.rx * (Math.abs(q.d) - q.wallD + 1) * sd; o.pos.z -= q.rz * (Math.abs(q.d) - q.wallD + 1) * sd; }
-          if (o.pos.y <= q.h) { o.pos.y = q.h; o.fuse = 1.2; o.life = 1.2; o.vel.set(0, 0, 0); }
+          if (!q.fall && o.pos.y <= q.h) { o.pos.y = q.h; o.fuse = 1.2; o.life = 1.2; o.vel.set(0, 0, 0); }
         }
         o.mesh.scale.setScalar(o.fuse > 0 && Math.floor(o.life * 8) % 2 ? 1.2 : 1);
       } else if (t === 'lider') {
@@ -546,7 +593,7 @@ export class Game {
         if (!tg || tg.eliminated) { this.removeObject(o.id); continue; }
         const d = Math.hypot(tg.pos.x - o.pos.x, tg.pos.z - o.pos.z);
         let ax, az, ay;
-        if (!w.isArena && d > 30) { const q = w.query(o.pos.x, o.pos.y - 4, o.pos.z, o.idx); o.idx = q.idx; const p = w.pointAt(q.s + 20, 0); ax = p.x; az = p.z; ay = p.y + 5; }
+        if (!w.isArena && d > 30) { const q = w.query(o.pos.x, o.pos.y - 4, o.pos.z, o.qh); const p = w.pointAt(q.s + 20, 0); ax = p.x; az = p.z; ay = p.y + 5; }
         else { ax = tg.pos.x; az = tg.pos.z; ay = tg.pos.y + (d < 10 ? 0 : 5); }
         tmpV.set(ax - o.pos.x, ay - o.pos.y, az - o.pos.z).normalize().multiplyScalar(d < 30 ? 45 : 85);
         o.vel.lerp(tmpV, 1 - Math.exp(-6 * dt)); o.pos.addScaledVector(o.vel, dt);
@@ -681,6 +728,27 @@ export class Game {
   }
 
   // ---------- IA ----------
+  aiTarget(k, look) {
+    const w = this.world, ai = k.ai, rd = w.roads[k.road ?? 0];
+    if (!rd || rd.main) {
+      for (const f of w.forks) {
+        const ahead = f.s0 - k.s;
+        if (ahead > -30 && ahead < look + 8) {
+          ai.fk = ai.fk || {};
+          let dec = ai.fk[f.id];
+          if (!dec || dec.lap !== k.lap) {
+            const take = f.kind === 'alt' ? Math.random() < 0.5 : (k.item && /nitro|estrella/.test(k.item)) || (k.v.todo >= 4 && Math.random() < 0.4) || Math.random() < 0.12;
+            dec = ai.fk[f.id] = { lap: k.lap, take };
+          }
+          if (dec.take && look - ahead > 0) return w.roadPoint(f.road, look - ahead, ai.lane * f.road.W * 0.5);
+        }
+      }
+      return w.pointAt(k.s + look, ai.lane * w.W);
+    }
+    const ls = (k.sl || 0) + look;
+    if (ls < rd.L) return w.roadPoint(rd, ls, ai.lane * rd.W * 0.5);
+    return w.pointAt(rd.s1 + (ls - rd.L), ai.lane * w.W);
+  }
   aiInput(k, dt, cruise = false) {
     const ai = k.ai || (k.ai = { lane: 0, laneT: 0, skill: 0.9, itemT: 0, driftT: 0, stuck: 0, rev: 0 });
     const w = this.world;
@@ -691,7 +759,7 @@ export class Game {
       ai.laneT -= dt;
       if (ai.laneT <= 0) { ai.laneT = 2 + Math.random() * 3; ai.lane = (Math.random() - 0.5) * 0.9; }
       const look = 9 + Math.max(0, k.speed) * 0.45;
-      const p = w.pointAt(k.s + look, ai.lane * w.W);
+      const p = this.aiTarget(k, look);
       tx = p.x; tz = p.z;
       // curvatura para derrapar
       const p2 = w.pointAt(k.s + look + 20, 0);
@@ -738,6 +806,7 @@ export class Game {
         const aheadClose = this.karts.some(x => { if (x === k || x.eliminated) return false; const dx = x.pos.x - k.pos.x, dz = x.pos.z - k.pos.z, d = Math.hypot(dx, dz); return d < 45 && (dx * fx + dz * fz) / d > 0.85; });
         if (['cascara', 'falsa'].includes(base)) { if (behind || Math.random() < 0.02 || w.isArena) item = true; }
         else if (base === 'disco' || base === 'bomba') { if (aheadClose || Math.random() < 0.01) item = true; }
+        else if (base === 'nitro' && !w.isArena) { const rd = w.roads[k.road ?? 0]; item = (rd && rd.dirt) || Math.random() < 0.3; }
         else item = true;
         if (item) ai.itemT = 0.5 + Math.random() * 1.5;
       }
@@ -754,7 +823,7 @@ export class Game {
       m.rotation.y = k.heading;
       u.body.rotation.y = k.visYaw;
       const lean = u.lean ? clamp(-(k.drift ? k.drift * 0.45 : 0) - (k.local ? 0 : 0), -0.6, 0.6) : 0;
-      u.body.rotation.z = k.tumble > 0 ? Math.sin(k.tumble * 9) * 1.2 : lean;
+      u.body.rotation.z = k.tumble > 0 ? Math.sin(k.tumble * 9) * 1.2 : (k.trickT > 0 ? (0.5 - k.trickT) / 0.5 * Math.PI * 2 * (k.slot % 2 ? 1 : -1) : lean);
       u.body.rotation.x = -Math.atan(k.slope || 0);
       if (k.vehicleHover || k.v.hover) u.body.position.y = Math.sin(this.time * 4 + k.slot) * 0.12;
       const sc = k.mini > 0 ? 0.55 : 1; m.scale.setScalar(sc);
@@ -770,7 +839,9 @@ export class Game {
     }
     // cámara
     const k = this.me;
-    const fx = Math.sin(k.heading), fz = Math.cos(k.heading);
+    if (this.camH === undefined) this.camH = k.heading;
+    this.camH += wrapA(k.heading - this.camH) * Math.min(1, dt * (k.respawnT > 0 ? 20 : 5.5));
+    const fx = Math.sin(this.camH), fz = Math.cos(this.camH);
     const dist = 7.5 + Math.min(3, Math.max(0, k.speed) * 0.06), hgt = 3.2;
     const want = tmpV.set(k.pos.x - fx * dist, k.pos.y + hgt, k.pos.z - fz * dist);
     if (this.battle) { const q = this.world.query(want.x, want.y, want.z); if (q.push) { want.x += q.push.x; want.z += q.push.z; } }

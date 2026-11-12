@@ -17,7 +17,11 @@ jobs:
           ls -la
           for f in package.json capacitor.config.json index.html scripts/build-www.mjs scripts/patch-android.mjs js/main.js vendor/three.module.min.js; do
             if [ ! -f "$f" ]; then
+<<<<<<< HEAD
               echo "::error::Falta '$f' en la raíz del repositorio. Sube el CONTENIDO de la carpeta kartazo (no la carpeta) y asegúrate de incluir la carpeta scripts/."
+=======
+              echo "::error::Falta '$f' en la raíz del repositorio."
+>>>>>>> 295e899107dc65ce056a94187e6f930b8c8e20c9
               exit 1
             fi
           done

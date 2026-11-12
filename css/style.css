@@ -110,8 +110,17 @@ label.chk { justify-content: flex-start; }
 #pauseBtn { position: absolute; top: max(104px, calc(env(safe-area-inset-top) + 96px)); left: 12px; pointer-events: auto; padding: 6px 12px; background: rgba(0,0,0,.4); }
 #touch { display: none; position: absolute; inset: auto 0 0 0; height: 45%; pointer-events: none; }
 body.touch #touch { display: block; }
-#steerPad { position: absolute; left: 0; bottom: 0; width: 50%; height: 100%; pointer-events: auto; display: flex; align-items: flex-end; justify-content: center; padding-bottom: max(26px, env(safe-area-inset-bottom)); touch-action: none; }
-#steerKnob { width: 150px; height: 70px; border-radius: 35px; background: rgba(255,255,255,.18); border: 3px solid rgba(255,255,255,.5); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; letter-spacing: 18px; padding-left: 18px; }
+#steerZone { position: absolute; left: 0; bottom: 0; width: 55%; height: 100%; pointer-events: auto; touch-action: none; }
+#steerZone .lr { position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex; gap: 14px; }
+#steerZone .lr button { width: 104px; height: 104px; border-radius: 26px; font-size: 2.4rem; background: rgba(255,255,255,.2); border: 3px solid rgba(255,255,255,.6); box-shadow: none; touch-action: none; }
+#steerZone .lr button.on { background: rgba(0,245,212,.55); transform: scale(.95); }
+#joyBase { position: absolute; width: 130px; height: 130px; border-radius: 50%; border: 3px solid rgba(255,255,255,.5); background: rgba(255,255,255,.12); transform: translate(-50%,-50%); display: none; }
+#joyBase.on { display: block; }
+#joyKnob { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; border-radius: 50%; background: rgba(255,255,255,.7); transform: translate(-50%,-50%); }
+.tiltHint { position: absolute; left: 20px; bottom: 30px; background: rgba(0,0,0,.4); padding: 6px 12px; border-radius: 12px; font-size: .8rem; display: none; }
+body[data-touchmode="joystick"] #steerZone .lr, body[data-touchmode="inclinacion"] #steerZone .lr { display: none; }
+body[data-touchmode="inclinacion"] .tiltHint { display: block; }
+body[data-touchmode="joystick"] #steerZone::after { content: 'Toca y desliza aquí para girar'; position: absolute; left: 20px; bottom: 30px; font-size: .75rem; opacity: .55; }
 .btns { position: absolute; right: max(14px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: 1fr 1fr; gap: 12px; pointer-events: auto; }
 .btns button { width: 92px; height: 92px; border-radius: 50%; font-size: .85rem; background: rgba(255,255,255,.2); border: 3px solid rgba(255,255,255,.6); box-shadow: none; touch-action: none; }
 .btns button.on { background: rgba(255,190,11,.7); }
@@ -137,7 +146,10 @@ body.touch #ranking div { min-width: 92px; padding: 1px 6px; }
   #itemBox { width: 66px; height: 66px; } #item { font-size: 2rem; }
   #minimap { width: 100px; height: 100px; bottom: 118px; }
   .btns button { width: 74px; height: 74px; font-size: .72rem; }
-  #steerKnob { width: 130px; height: 60px; }
+  #steerZone .lr button { width: 86px; height: 86px; }
   #pauseBtn { left: 86px; }
   body.touch #ranking { top: 80px; max-height: calc(100% - 270px); }
 }
+
+#scrPause label { justify-content: center; }
+.trk .feat { display: block; font-size: .68rem; opacity: .85; margin-top: 2px; }

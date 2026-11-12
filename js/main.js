@@ -1,11 +1,11 @@
 // ===== Kartazo Rally · menús, flujo de juego y salas =====
 import * as THREE from '../vendor/three.module.min.js';
 import { CUPS, TRACKS, ARENAS, DRIVERS, VEHICLES, COLORS, MODES, ITEMS, THEMES, GP_POINTS, BOT_NAMES } from './data.js';
-import { trackOutline } from './track.js';
+import { trackOutline } from './circuit.js';
 import { makeVehicle } from './models.js';
 import { Game } from './game.js';
 import { Net, randomCode } from './net.js';
-import { setupTouch, isTouchDevice, setAutoAccel } from './input.js';
+import { setupTouch, isTouchDevice, setAutoAccel, setTouchConfig, calibrateTilt, enableTilt } from './input.js';
 import { initAudio, setSound, sfx } from './audio.js';
 
 const $ = s => document.querySelector(s);
@@ -16,7 +16,7 @@ const hexc = n => '#' + n.toString(16).padStart(6, '0');
 const LS = 'kartazo_profile_v1';
 const profile = Object.assign({
   name: 'Piloto' + Math.floor(Math.random() * 900 + 100), driver: 'ajolota', vehicle: 'kart', color: COLORS[0],
-  sfx: true, music: true, auto: true, forceTouch: false, quality: 1,
+  sfx: true, music: true, auto: true, forceTouch: false, quality: 1, touchMode: 'botones', autoDrift: true, tiltInv: false, tiltSens: 22,
 }, JSON.parse(localStorage.getItem(LS) || '{}'));
 const saveProfile = () => localStorage.setItem(LS, JSON.stringify(profile));
 const records = JSON.parse(localStorage.getItem('kartazo_tt') || '{}');
@@ -32,6 +32,8 @@ addEventListener('resize', () => { applyQuality(); game && game.resize(); });
 if (isTouchDevice() || profile.forceTouch) document.body.classList.add('touch');
 setupTouch($('#hud'));
 setAutoAccel(profile.auto); setSound(profile.sfx, profile.music);
+const applyTouch = () => setTouchConfig({ mode: profile.touchMode, autoAccel: profile.auto, autoDrift: profile.autoDrift, tiltInvert: profile.tiltInv, tiltSens: 50 - profile.tiltSens });
+applyTouch();
 addEventListener('pointerdown', () => initAudio(), { once: false, passive: true });
 
 // ---------- navegación ----------
@@ -192,7 +194,15 @@ $('#garageOk').onclick = closeGarage; $('#garageBack').onclick = closeGarage;
 $('#optSfx').checked = profile.sfx; $('#optMusic').checked = profile.music; $('#optAuto').checked = profile.auto; $('#optTouch').checked = profile.forceTouch; $('#optQ').value = profile.quality;
 $('#optSfx').onchange = e => { profile.sfx = e.target.checked; setSound(profile.sfx, profile.music); saveProfile(); };
 $('#optMusic').onchange = e => { profile.music = e.target.checked; setSound(profile.sfx, profile.music); saveProfile(); };
-$('#optAuto').onchange = e => { profile.auto = e.target.checked; setAutoAccel(profile.auto); saveProfile(); };
+$('#optAuto').onchange = e => { profile.auto = e.target.checked; applyTouch(); saveProfile(); };
+$('#optTouchMode').value = profile.touchMode; $('#optAutoDrift').checked = profile.autoDrift; $('#optTiltInv').checked = profile.tiltInv; $('#optTiltSens').value = profile.tiltSens;
+const setMode = async v => { profile.touchMode = v; if (v === 'inclinacion') await enableTilt(); applyTouch(); saveProfile(); $('#optTouchMode').value = v; $('#pauseTouchMode').value = v; };
+$('#optTouchMode').onchange = e => setMode(e.target.value);
+$('#pauseTouchMode').onchange = e => setMode(e.target.value);
+$('#optAutoDrift').onchange = e => { profile.autoDrift = e.target.checked; applyTouch(); saveProfile(); };
+$('#optTiltInv').onchange = e => { profile.tiltInv = e.target.checked; applyTouch(); saveProfile(); };
+$('#optTiltSens').oninput = e => { profile.tiltSens = +e.target.value; applyTouch(); saveProfile(); };
+$('#calibBtn').onclick = () => { calibrateTilt(); sfx.click(); };
 $('#optTouch').onchange = e => { profile.forceTouch = e.target.checked; document.body.classList.toggle('touch', isTouchDevice() || profile.forceTouch); saveProfile(); };
 $('#optQ').onchange = e => { profile.quality = +e.target.value; applyQuality(); saveProfile(); };
 $('#resetRecords').onclick = () => { for (const k in records) delete records[k]; saveRecords(); alert('Récords borrados'); };
@@ -220,7 +230,7 @@ function launch(cfg) {
       net: net.online ? net.gameChannel() : null, hud: $('#hud'),
       onEnd: res => onGameEnd(res, cfg),
     });
-    paused = false;
+    paused = false; if (profile.touchMode === 'inclinacion') setTimeout(calibrateTilt, 800);
     loading(false); show('scrResults'); overlay('scrResults', false); show('hud');
   }, 30);
 }
@@ -293,7 +303,7 @@ function onGameEnd(res, cfg) {
 function endGame() { if (game) { game.dispose(); game = null; } overlay('scrResults', false); overlay('scrPause', false); renderer.clear(); }
 
 // pausa
-$('#pauseBtn').onclick = () => { if (!game) return; overlay('scrPause', true); if (!net.online) paused = true; $('#restartBtn').style.display = net.online ? 'none' : ''; };
+$('#pauseBtn').onclick = () => { if (!game) return; $('#pauseTouchMode').value = profile.touchMode; overlay('scrPause', true); if (!net.online) paused = true; $('#restartBtn').style.display = net.online ? 'none' : ''; };
 addEventListener('keydown', e => { if (e.code === 'Escape' && game && current === 'hud') { const on = !$('#scrPause').classList.contains('show'); overlay('scrPause', on); if (!net.online) paused = on; } });
 $('#resumeBtn').onclick = () => { overlay('scrPause', false); paused = false; game && (game.accum = 0); };
 $('#restartBtn').onclick = () => { overlay('scrPause', false); if (lastCfg) { if (lastCfg.mode === 'gp' && state.gp) state.gp.totals = {}, state.gp.round = 0, lastCfg.track = state.gp.cup * 4; launch({ ...lastCfg, seed: Date.now() % 1e6 }); } };

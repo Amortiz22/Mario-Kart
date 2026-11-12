@@ -4,16 +4,22 @@ Juego de karts 3D para **navegador y Android** con **salas online para jugar con
 Todo es original (pilotos, vehículos y pistas) y no necesita servidor propio.
 
 ## Qué incluye
-- **32 pistas** en 8 copas (Semilla, Nopal, Llama, Cometa, Hoja, Rayo, Corona y Galaxia) con 14 temas: pradera, playa, desierto, nieve, bosque, volcán, ciudad neón, castillo, espacio, selva, cielo, fábrica, cañón y dulces. Hay formas de U, L, T, trébol, corazón y zigzag, más figuras de 8 con puente.
-- **6 arenas de batalla**.
-- **7 modos**: Gran Premio (copa de 4 pistas con puntos), Carrera VS, Contrarreloj (guarda récords), Eliminación, Guerra de Globos, Robo de Monedas y Bombazo.
-- **Sorteo de pista**: en un jugador hay ruleta. Online, cada quien vota y la ruleta elige uno de los votos.
-- **12 vehículos** en 5 clases: karts, motos (derrape interior), cuatrimotos, autos y un platillo que flota. Cada uno tiene stats de velocidad, aceleración, manejo, peso y todoterreno.
-- **12 pilotos** que afectan el peso, y 12 colores.
-- **14 items**: cáscara, disco verde/rastreador (y triples), nitro (y triple), supercarga, rayo encogedor, bomba, caja falsa, calamar de tinta, misil del líder y bolsa de monedas. Salen según tu posición.
-- Derrape con mini-turbo de 3 niveles, arrancón, turbo-pads, monedas que suben la velocidad, 50/100/150/200cc y modo espejo.
-- Rivales CPU con ajuste dinámico de dificultad.
-- Controles de teclado, táctiles y gamepad, música y sonidos sintetizados.
+- **32 pistas** en 8 copas y 14 temas. Hay trazos generados como circuitos reales (curvas en S, horquillas, chicanas) y formas como serpiente, escalera, garra, gancho, rayo, dona, U, L, T, trébol y corazón, además de figuras de 8 con puente.
+- **Caminos alternos** que se separan y vuelven a unirse, y **atajos de terracería**: son lentos sin turbo, así que conviene usarlos con un nitro.
+- **Rampas** con **trucos en el aire** (al pulsar Derrape) que dan turbo al aterrizar.
+- **Saltos sobre huecos**: abismo, río, lava o grieta. Si caes, un dron te rescata.
+- **Tramos sin barandal** en las pistas de cielo y espacio, **túneles** y **señales de curva**.
+- **Trampas según el tema**: vacas, cangrejos, rocas rodantes, bolas de nieve, asteroides, chicles gigantes, troncos, nubes de tormenta, plantas carnívoras, aplastadores, barras de fuego, géiseres (de agua y de lava), tráfico, aceite, hielo, lodo, arenas movedizas y gelatina.
+- **6 arenas de batalla** y **7 modos**: Gran Premio, Carrera VS (con sorteo de pista), Contrarreloj, Eliminación, Guerra de Globos, Robo de Monedas y Bombazo.
+- **12 vehículos** (karts, motos con derrape interior, cuatrimotos, autos y un platillo), **12 pilotos** y **14 items**.
+- **Manejo arcade**:
+  - El volante es suave.
+  - En el derrape, el contravolante abre la curva y girar hacia dentro la cierra.
+  - El mini-turbo tiene 3 niveles.
+  - Los muros te dejan deslizar en lugar de rebotar.
+  - Hay arrancón al salir.
+- **Controles táctiles** a elegir en Opciones: botones ◀ ▶ grandes, joystick flotante o inclinar el teléfono. Incluyen derrape automático y aceleración automática.
+- **Salas online** de hasta 12 jugadores. Navegador y Android juegan juntos.
 
 ## Jugar en local
 ```bash
@@ -57,7 +63,8 @@ npm run android:apk      # APK en android/app/build/outputs/apk/debug/
 index.html          pantallas y HUD
 css/style.css       estilos
 js/data.js          pistas, copas, pilotos, vehículos, items, modos
-js/track.js         generación 3D de pistas y arenas
+js/circuit.js       circuitos: formas, caminos alternos, atajos, rampas, huecos, túneles, trampas
+js/track.js         texturas, decoración y arenas de batalla
 js/models.js        modelos low-poly de vehículos, pilotos e items
 js/game.js          física, items, IA, reglas de cada modo
 js/net.js           salas online (PeerJS)
@@ -69,6 +76,9 @@ vendor/             three.js y PeerJS (incluidos, sin CDN)
 
 ### Agregar una pista
 En `js/data.js`, dentro de una copa, agrega una línea así:
-`T('Nombre', 'tema', semilla, tamaño, complejidad, colinas, ancho, { shape: 'U' })`
+`T('Nombre', 'tema', semilla, tamaño, complejidad, colinas, ancho, { shape: 'gen' })`
 
-Formas disponibles: `blob`, `U`, `L`, `T`, `tri`, `zig`, `stadium`, `clover`, `heart`, `bean` o `{ eight: true }`.
+- **Formas**: `gen` (procedural), `serpiente`, `escalera`, `garra`, `gancho`, `rayo`, `dona`, `U`, `L`, `T`, `tri`, `zig`, `stadium`, `clover`, `heart`, `bean`, `blob` o `{ eight: true }`.
+- **Extras opcionales**: `alt` (número de caminos alternos), `short` (atajo, 0 o 1), `ramps`, `hazards`, `tunnel` (true/false).
+
+Si no los pones, se calculan solos según la complejidad. Cambiar la semilla genera una pista distinta.

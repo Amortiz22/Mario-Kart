@@ -36,7 +36,7 @@ const T = (name, theme, seed, size, cx, hills, w = 16, extra = {}) => ({ name, t
 export const CUPS = [
   { name: 'Copa Semilla', icon: '🌱', tracks: [
     T('Circuito Pradera', 'prado', 11, 120, 0.25, 2, 18),
-    T('Playa Coral', 'playa', 23, 135, 0.4, 1, 17),
+    T('Playa Coral', 'playa', 23, 115, 0.4, 1, 17),
     T('Dunas Doradas', 'desierto', 37, 140, 0.45, 4, 17),
     T('Valle Nevado', 'nieve', 41, 130, 0.5, 6, 16),
   ]},
@@ -77,16 +77,16 @@ export const CUPS = [
     T('Nubes de Algodón', 'cielo', 263, 165, 0.75, 9, 14),
   ]},
   { name: 'Copa Galaxia', icon: '🌌', tracks: [
-    T('Bahía Tormenta', 'playa', 271, 170, 0.8, 5, 15),
+    T('Bahía Tormenta', 'playa', 271, 140, 0.8, 5, 15),
     T('Metrópolis', 'ciudad', 277, 175, 0.85, 6, 15),
     T('Corazón del Volcán', 'volcan', 281, 165, 0.85, 11, 14, { eight: true }),
     T('Anillo Galáctico', 'espacio', 293, 190, 0.85, 14, 14),
   ]},
 ];
-const SHAPE_CYCLE = ['blob', 'U', 'clover', 'L', 'zig', 'tri', 'stadium', 'heart', 'T', 'bean'];
+const SHAPE_CYCLE = ['gen', 'serpiente', 'U', 'gen', 'clover', 'gancho', 'gen', 'rayo', 'L', 'gen', 'escalera', 'heart', 'gen', 'dona', 'zig', 'gen', 'garra', 'T', 'gen', 'stadium', 'bean', 'tri', 'gen', 'serpiente', 'gancho', 'gen', 'rayo'];
 let shapeN = 0;
 export const TRACKS = CUPS.flatMap((c, ci) => c.tracks.map((t, ti) => {
-  if (!t.eight && !t.shape) t.shape = SHAPE_CYCLE[(shapeN++ * 3) % SHAPE_CYCLE.length];
+  if (!t.eight && !t.shape) t.shape = SHAPE_CYCLE[shapeN++ % SHAPE_CYCLE.length];
   return Object.assign(t, { cup: ci, idx: ci * 4 + ti });
 }));
 
